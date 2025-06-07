@@ -1,0 +1,16 @@
+name: arina-chat
+
+version: '3.8'
+
+services:
+  arina:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_ENVIRONMENT=Production
+    env_file:
+      - .env 

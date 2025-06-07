@@ -1,0 +1,30 @@
+# .NET Core
+bin/
+obj/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+.vs/
+.vscode/
+*.swp
+*.*~
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Environment files
+.env
+appsettings.Development.json
+appsettings.Production.json
+
+# Docker
+.docker/
+
+# IDE
+.idea/
+*.sln.iml
+
+# OS
+.DS_Store
+Thumbs.db 
