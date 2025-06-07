@@ -23,6 +23,34 @@ const int TOKEN_REFRESH_MINUTES = 20; // Refresh token 5 minutes before expirati
 const int TOKEN_CACHE_MINUTES = 25;   // Standard token lifetime
 const int MAX_RETRIES = 3;           // Максимальное количество попыток получения токена
 const int RETRY_DELAY_MS = 1000;     // Задержка между попытками в миллисекундах
+const string SYSTEM_PROMPT = "Меня зовут Арина. Я — ваш дружелюбный ассистент и обожаю дизайн одежды. Я стараюсь отвечать чётко, креативно и помогаю по вопросам моды, пошива и стиля.";
+
+// Создаем статический HttpMessageHandler для повторного использования
+static HttpMessageHandler CreateHandler(X509Certificate2Collection certCollection)
+{
+    return new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+        MaxConnectionsPerServer = 20,
+        EnableMultipleHttp2Connections = true,
+        SslOptions = new SslClientAuthenticationOptions
+        {
+            RemoteCertificateValidationCallback = (sender, cert, chain, sslPolicyErrors) =>
+            {
+                using var newChain = new X509Chain();
+                newChain.ChainPolicy.ExtraStore.AddRange(certCollection);
+                newChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+                newChain.ChainPolicy.VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority;
+
+                bool isValid = newChain.Build((X509Certificate2)cert);
+                Console.WriteLine($"Certificate validation result: {isValid}");
+                return isValid;
+            },
+            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+        }
+    };
+}
 
 // Загружаем сертификаты
 var rootCertPath = Path.Combine(Directory.GetCurrentDirectory(), "certs", "russian_trusted_root_ca.crt");
@@ -40,44 +68,24 @@ catch (Exception ex)
     Console.WriteLine($"Error loading certificates: {ex.Message}");
 }
 
-// Создаем HttpClientHandler с сертификатами и настройками соединения
-var handler = new HttpClientHandler
-{
-    ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) =>
-    {
-        // Создаем новую цепочку сертификатов
-        using var newChain = new X509Chain();
-        newChain.ChainPolicy.ExtraStore.AddRange(certCollection);
-        newChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-        newChain.ChainPolicy.VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority;
+// Создаем один экземпляр handler для всех клиентов
+var handler = CreateHandler(certCollection);
 
-        // Проверяем сертификат
-        bool isValid = newChain.Build((X509Certificate2)cert);
-        Console.WriteLine($"Certificate validation result: {isValid}");
-        return isValid;
-    },
-    SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-    CheckCertificateRevocationList = false,
-    MaxConnectionsPerServer = 20
-};
-
-// Add HttpClient for GigaChat API with proper handler lifecycle
+// Add HttpClient for GigaChat API
 builder.Services.AddHttpClient("GigaChat", client =>
 {
     client.BaseAddress = new Uri("https://gigachat.devices.sberbank.ru/api/v1/");
     client.DefaultRequestHeaders.Add("Accept", "application/json");
     client.Timeout = TimeSpan.FromSeconds(30);
 })
-.ConfigurePrimaryHttpMessageHandler(() => handler)
-.SetHandlerLifetime(Timeout.InfiniteTimeSpan); // Prevent handler disposal
+.ConfigurePrimaryHttpMessageHandler(() => handler);
 
-// Add default HttpClient with proper handler lifecycle
+// Add default HttpClient
 builder.Services.AddHttpClient("Default", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
 })
-.ConfigurePrimaryHttpMessageHandler(() => handler)
-.SetHandlerLifetime(Timeout.InfiniteTimeSpan); // Prevent handler disposal
+.ConfigurePrimaryHttpMessageHandler(() => handler);
 
 var app = builder.Build();
 
@@ -258,6 +266,7 @@ app.MapPost("/api/chat", async ([FromServices] IHttpClientFactory clientFactory,
                 model = "GigaChat:latest",
                 messages = new[]
                 {
+                    new { role = "system", content = SYSTEM_PROMPT },
                     new { role = "user", content = userRequest.Message }
                 },
                 temperature = 0.7,
